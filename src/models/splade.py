@@ -16,9 +16,11 @@ class SpladeModel(BaseSparseModel):
             pooling_strategy: Literal["max", "sum"] = "max",
             **kwargs
         ):
-        super().__init__(model_name_or_path=model_name_or_path, device=device, **kwargs)
+        # Set instance attributes BEFORE calling super().__init__()
+        # because build_model() is called in parent __init__ and needs these attributes
         self.architecture = architecture
         self.pooling_strategy = pooling_strategy
+        super().__init__(model_name_or_path=model_name_or_path, device=device, **kwargs)
 
     def _build_splade_model(self):
         """
@@ -32,6 +34,7 @@ class SpladeModel(BaseSparseModel):
 
         # Create the Splade model
         model = SparseEncoder(modules=[mlm_transformer, splade_pooling])
+        
         return model
     
     def _build_ifsplade_model(self):
@@ -50,6 +53,8 @@ class SpladeModel(BaseSparseModel):
 
         # Create the inference-free model
         model = SparseEncoder(modules=[router], similarity_fn_name="dot")
+        
+
         return model
     
     def _build_csr_splade_model(self):

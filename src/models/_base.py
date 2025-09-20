@@ -27,8 +27,16 @@ class BaseSparseModel:
         if self.eval_mode:
             self.model = SparseEncoder.from_pretrained(self.model_name_or_path)
         else:
-            self.model = self.build_model()
-
+            built_model = self.build_model()
+            if built_model is None:
+                raise ValueError(f"build_model() returned None. Check your model implementation.")
+            self.model = built_model
+        
+        # Initialize tokenizer from the model
+        self.tokenizer = None
+        if hasattr(self.model, 'tokenizer'):
+            self.tokenizer = self.model.tokenizer
+        
         self.model.to(self.device)
 
         if self.eval_mode:
@@ -64,3 +72,11 @@ class BaseSparseModel:
             self.model.eval()
 
         return self
+    
+    def tokenize(self, text, **kwargs):
+        """
+        Tokenize text using the model's tokenizer.
+        """
+        if self.tokenizer is None:
+            raise RuntimeError("Tokenizer not available. Make sure model is properly initialized.")
+        return self.tokenizer(text, **kwargs)
