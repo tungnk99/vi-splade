@@ -24,7 +24,9 @@ class VNLegalDataset:
         self, 
         corpus_path: str,
         test_path: Optional[str] = None,
-        train_path: Optional[str] = None
+        train_path: Optional[str] = None,
+        max_query_length: int = 64,
+        max_document_length: int = 256
     ):
         """
         Initialize the dataset.
@@ -33,10 +35,14 @@ class VNLegalDataset:
             corpus_path (str): Path to corpus CSV file
             test_path (str, optional): Path to test CSV file
             train_path (str, optional): Path to train CSV file
+            max_query_length (int): Maximum length for queries (in characters)
+            max_document_length (int): Maximum length for documents (in characters)
         """
         self.corpus_path = corpus_path
         self.test_path = test_path
         self.train_path = train_path
+        self.max_query_length = max_query_length
+        self.max_document_length = max_document_length
         
         # Load data
         self._load_data()
@@ -72,6 +78,29 @@ class VNLegalDataset:
             print(f"   - Train: {len(self.train_df):,} questions")
         
         print("✅ Data loaded successfully!")
+    
+    def _truncate_text(self, text: str, max_length: int) -> str:
+        """
+        Truncate text to maximum length, preserving word boundaries.
+        
+        Args:
+            text (str): Text to truncate
+            max_length (int): Maximum length in characters
+            
+        Returns:
+            str: Truncated text
+        """
+        if len(text) <= max_length:
+            return text
+        
+        # Find the last space before the max_length to avoid cutting words
+        truncated = text[:max_length]
+        last_space = truncated.rfind(' ')
+        
+        if last_space > max_length * 0.8:  # If space is reasonably close to end
+            return truncated[:last_space] + "..."
+        else:
+            return truncated + "..."
     
     def _prepare_samples(self):
         """Prepare all query-document samples with structured format."""
@@ -145,9 +174,13 @@ class VNLegalDataset:
                 # Get document from corpus if available
                 document_text = self.doc_id_to_text.get(cid, str(context))
                 
+                # Truncate texts to prevent position embedding errors
+                truncated_query = self._truncate_text(question, self.max_query_length)
+                truncated_document = self._truncate_text(document_text, self.max_document_length)
+                
                 sample = {
-                    'query': question,
-                    'document': document_text,
+                    'query': truncated_query,
+                    'document': truncated_document,
                     'qid': qid,
                     'cid': cid,
                     'split': split

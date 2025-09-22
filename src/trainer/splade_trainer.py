@@ -21,7 +21,7 @@ from sentence_transformers.sparse_encoder.losses import SparseMultipleNegativesR
 from sentence_transformers.training_args import BatchSamplers
 
 from ..dataset.vn_legal_dataset import VNLegalDataset
-from ..models.splade import SpladeModel
+from ..model.splade import SpladeModel
 
 
 class SpladeTrainer:
@@ -68,18 +68,6 @@ class SpladeTrainer:
             level=logging.INFO
         )
         self.logger = logging.getLogger(__name__)
-        
-    def setup_model_card(self):
-        """
-        Setup model card data for documentation.
-        """
-        if hasattr(self.model, 'model_card_data'):
-            self.model.model_card_data = SparseEncoderModelCardData(
-                language=self.language,
-                license=self.license,
-                model_name=f"Vietnamese Legal SPLADE {self.splade_model.model_name_or_path} ({self.splade_model.architecture}) trained on VN Legal Documents",
-            )
-            self.logger.info("✅ Model card data configured")
     
     def load_dataset(
         self,
@@ -87,7 +75,9 @@ class SpladeTrainer:
         test_path: Optional[str] = None,
         train_path: Optional[str] = None,
         train_split_ratio: float = 0.8,
-        eval_samples: int = 1000
+        eval_samples: int = 1000,
+        max_query_length: int = 64,
+        max_document_length: int = 256
     ) -> Dict[str, Dataset]:
         """
         Load and prepare Vietnamese legal dataset.
@@ -98,17 +88,21 @@ class SpladeTrainer:
             train_path: Path to train CSV file  
             train_split_ratio: Ratio for train/eval split if no separate eval data
             eval_samples: Number of samples for evaluation
+            max_query_length: Maximum length for queries (in characters)
+            max_document_length: Maximum length for documents (in characters)
             
         Returns:
             Dict with 'train' and 'eval' datasets
         """
         self.logger.info("📚 Loading VN Legal Dataset...")
         
-        # Initialize dataset
+        # Initialize dataset with text truncation
         self.dataset = VNLegalDataset(
             corpus_path=corpus_path,
             test_path=test_path,
-            train_path=train_path
+            train_path=train_path,
+            max_query_length=max_query_length,
+            max_document_length=max_document_length
         )
         
         # Prepare training data
@@ -149,11 +143,10 @@ class SpladeTrainer:
         per_device_train_batch_size: int = 8,
         per_device_eval_batch_size: int = 16,
         learning_rate: float = 2e-5,
-        sparse_embedding_lr: float = 1e-3,
         warmup_ratio: float = 0.1,
         query_regularizer_weight: float = 0,
         document_regularizer_weight: float = 3e-3,
-        fp16: bool = True,
+        fp16: bool = False,  # Disable FP16 by default for Vietnamese models
         bf16: bool = False,
         eval_steps: int = 500,
         save_steps: int = 500,
@@ -168,7 +161,7 @@ class SpladeTrainer:
             per_device_train_batch_size: Batch size for training
             per_device_eval_batch_size: Batch size for evaluation
             learning_rate: Base learning rate
-            sparse_embedding_lr: Learning rate for sparse embeddings
+            # sparse_embedding_lr parameter removed - not needed for standard SPLADE
             warmup_ratio: Warmup ratio
             query_regularizer_weight: Query regularization weight
             document_regularizer_weight: Document regularization weight
@@ -184,6 +177,10 @@ class SpladeTrainer:
         """
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
+        # Check if CUDA is available for pin_memory setting
+        import torch
+        use_pin_memory = torch.cuda.is_available()
+        
         args = SparseEncoderTrainingArguments(
             # Required parameter
             output_dir=str(self.output_dir),
@@ -192,14 +189,15 @@ class SpladeTrainer:
             per_device_train_batch_size=per_device_train_batch_size,
             per_device_eval_batch_size=per_device_eval_batch_size,
             learning_rate=learning_rate,
-            learning_rate_mapping={
-                r"SparseStaticEmbedding\.weight": sparse_embedding_lr
-            },
+            # Remove learning_rate_mapping as it's causing issues with standard SPLADE model
+            # learning_rate_mapping can be added later if needed for specific architectures
             warmup_ratio=warmup_ratio,
             fp16=fp16,
             bf16=bf16,
             batch_sampler=BatchSamplers.NO_DUPLICATES,
-            router_mapping={"query": "query", "document": "document"},
+            load_best_model_at_end=True,
+            # Data loading settings
+            dataloader_pin_memory=use_pin_memory,  # Only use pin_memory if CUDA available
             # Evaluation and saving
             eval_strategy="steps",
             eval_steps=eval_steps,
@@ -208,10 +206,17 @@ class SpladeTrainer:
             save_total_limit=2,
             logging_steps=logging_steps,
             run_name=self.run_name,
+            seed=42,
             **kwargs
         )
         
         self.logger.info(f"⚙️ Training arguments configured for {num_train_epochs} epochs")
+        self.logger.info(f"🖥️ Device setup: CUDA available = {torch.cuda.is_available()}")
+        if torch.cuda.is_available():
+            self.logger.info(f"   GPU: {torch.cuda.get_device_name()}")
+            self.logger.info(f"   Pin memory: Enabled")
+        else:
+            self.logger.info(f"   Using CPU, pin memory: Disabled")
         return args
     
     def setup_loss(
@@ -234,9 +239,14 @@ class SpladeTrainer:
         
         loss = SpladeLoss(
             model=self.model,
-            loss=SparseMultipleNegativesRankingLoss(model=self.model),
+            loss=SparseMultipleNegativesRankingLoss(
+                model=self.model,
+                scale=1,  # Scale factor for the loss
+                similarity_fct=self.model.similarity,  # Use the same similarity function as the model
+            ),
             query_regularizer_weight=query_regularizer_weight,
             document_regularizer_weight=document_regularizer_weight,
+            use_document_regularizer_only=True,  # Use only document regularizer as in the example
         )
         
         self.logger.info("💥 SPLADE loss function configured")
@@ -301,27 +311,25 @@ class SpladeTrainer:
         """
         self.logger.info(f"🚀 Starting Vietnamese Legal SPLADE training: {self.run_name}")
         self.logger.info(f"   - Model: {self.splade_model.model_name_or_path}")
-        self.logger.info(f"   - Architecture: {self.splade_model.architecture}")
+        self.logger.info(f"   - Model type: {self.splade_model.model_type}")
         
-        # 1. Setup model card
-        self.setup_model_card()
-        
-        # 2. Load dataset
+        # 1. Load dataset
         datasets = self.load_dataset(corpus_path, test_path, train_path)
         
-        # 3. Setup training arguments
+        # 2. Setup training arguments
         args_config = training_args or {}
         args = self.setup_training_args(**args_config)
         
-        # 4. Setup loss function
+        # 3. Setup loss function
         loss_config = loss_args or {}
         loss = self.setup_loss(**loss_config)
         
-        # 5. Create evaluator (optional)
+        # 4. Create evaluator (optional)
         eval_config = evaluator_args or {}
         evaluator = self.create_evaluator(**eval_config)
         
-        # 6. Create trainer
+        # 5. Create trainer
+
         self.trainer = SparseEncoderTrainer(
             model=self.model,
             args=args,
@@ -331,20 +339,12 @@ class SpladeTrainer:
             evaluator=evaluator,
         )
         
-        # 7. Start training
+        # 6. Start training
         self.logger.info("🏃‍♂️ Starting training...")
         
-        # Handle checkpoint resuming - use trainer's built-in support
-        train_kwargs = {}
-        if resume_checkpoint:
-            train_kwargs["resume_from_checkpoint"] = resume_checkpoint
-        elif auto_resume:
-            # Let trainer auto-detect last checkpoint in output_dir
-            train_kwargs["resume_from_checkpoint"] = True
+        self.trainer.train()
         
-        self.trainer.train(**train_kwargs)
-        
-        # 8. Evaluate final model
+        # 7. Evaluate final model
         if evaluator:
             self.logger.info("📊 Evaluating final model...")
             try:
@@ -357,13 +357,7 @@ class SpladeTrainer:
         self.logger.info(f"💾 Saving final model to: {final_path}")
         self.model.save_pretrained(str(final_path))
         
-        # 10. Cleanup old checkpoints (optional)
-        if cleanup_old_checkpoints:
-            try:
-                self.logger.info("🧹 Cleaning up old checkpoints...")
-                self.clean_old_checkpoints(keep_last_n=2)
-            except Exception as e:
-                self.logger.warning(f"⚠️ Failed to cleanup checkpoints: {e}")
+        # 10. Cleanup old checkpoints (optional) - removed for now since method not implemented
         
         # 11. Push to hub (optional)
         if push_to_hub:
@@ -447,3 +441,74 @@ class SpladeTrainer:
             train_path=train_path,
             **kwargs
         )
+    
+    def find_latest_checkpoint(self) -> Optional[str]:
+        """
+        Find the latest checkpoint in the output directory.
+        
+        Returns:
+            Optional[str]: Path to latest checkpoint or None if not found
+        """
+        if not self.output_dir.exists():
+            return None
+        
+        checkpoints = []
+        for path in self.output_dir.iterdir():
+            if path.is_dir() and path.name.startswith("checkpoint-"):
+                try:
+                    step = int(path.name.split("-")[1])
+                    checkpoints.append((step, str(path)))
+                except (ValueError, IndexError):
+                    continue
+        
+        if not checkpoints:
+            return None
+            
+        # Return checkpoint with highest step number
+        checkpoints.sort(key=lambda x: x[0], reverse=True)
+        return checkpoints[0][1]
+    
+    def list_checkpoints(self) -> List[str]:
+        """
+        List all checkpoints in the output directory.
+        
+        Returns:
+            List[str]: List of checkpoint paths
+        """
+        if not self.output_dir.exists():
+            return []
+        
+        checkpoints = []
+        for path in self.output_dir.iterdir():
+            if path.is_dir() and path.name.startswith("checkpoint-"):
+                checkpoints.append(str(path))
+        
+        # Sort by step number
+        try:
+            checkpoints.sort(key=lambda x: int(Path(x).name.split("-")[1]))
+        except (ValueError, IndexError):
+            checkpoints.sort()  # Fallback to alphabetical sort
+            
+        return checkpoints
+    
+    def clean_old_checkpoints(self, keep_last_n: int = 2):
+        """
+        Clean old checkpoints, keeping only the last N.
+        
+        Args:
+            keep_last_n: Number of recent checkpoints to keep
+        """
+        import shutil
+        
+        checkpoints = self.list_checkpoints()
+        if len(checkpoints) <= keep_last_n:
+            return
+        
+        # Remove oldest checkpoints
+        to_remove = checkpoints[:-keep_last_n]
+        for checkpoint_path in to_remove:
+            try:
+                shutil.rmtree(checkpoint_path)
+                self.logger.info(f"🗑️ Removed checkpoint: {checkpoint_path}")
+            except Exception as e:
+                self.logger.warning(f"⚠️ Failed to remove checkpoint {checkpoint_path}: {e}")

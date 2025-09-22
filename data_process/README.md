@@ -1,176 +1,232 @@
-# Vietnamese Legal Document Data Processing
+# Dataset Manager - Enhanced Version
 
-Thư viện xử lý dữ liệu văn bản pháp luật Việt Nam với các tính năng làm sạch, chuẩn hóa và chuyển đổi định dạng.
+Dataset Manager đã được nâng cấp với các tính năng mới mạnh mẽ:
 
-## Tính năng chính
+## 🚀 Tính năng mới
 
-### 1. VNLegalDocProcessor - Xử lý văn bản
-- **Làm sạch văn bản**: Loại bỏ ký tự điều khiển, chuẩn hóa Unicode cho tiếng Việt
-- **Chuẩn hóa cấu trúc pháp lý**: Điều, Chương, Mục, Khoản
-- **Tách câu thông minh**: Nhận biết cấu trúc pháp lý đặc biệt
-- **Trích xuất thành phần pháp lý**: Tự động nhận diện các điều khoản, chương mục
+### 1. Auto-Download từ Hugging Face Hub
+- Tự động download dataset từ HF nếu chưa có ở local
+- Hỗ trợ authentication với HF_TOKEN
+- Download song song với progress bar
 
-### 2. DataConverter - Chuyển đổi định dạng  
-- **Parquet → JSON**: Định dạng có cấu trúc, dễ đọc
-- **Parquet → CSV**: Tương thích với Excel, Google Sheets
-- **Parquet → TXT**: Văn bản thuần túy với metadata
-- **Tạo tóm tắt**: Báo cáo thống kê tổng quan
+### 2. Auto-Convert sang định dạng chuẩn
+- Tự động convert dataset đã download sang định dạng VNLegalDataset
+- Mapping thông minh các format khác nhau
+- Tạo corpus và split files chuẩn
 
-### 3. DataAnalyzer - Phân tích dữ liệu
-- **Thống kê tổng quan**: Kích thước, cột, chất lượng dữ liệu
-- **Phân tích văn bản**: Từ vựng, độ dài, mật độ thuật ngữ pháp lý
-- **So sánh dataset**: Corpus vs Test data
-- **Báo cáo chi tiết**: Phân tích toàn diện xuất ra file
+### 3. Build Dataset theo format
+- **Query-Document pairs**: Cho training retrieval models
+- **Triplets**: Query + Positive + Negative docs
+- **Reranking**: Query + Document + Relevance score
 
-## Cài đặt
+### 4. Quản lý thông qua configs
+- Load dataset configurations từ JSON
+- Mapping automatic giữa use cases và converters
+- Hỗ trợ nhiều dataset sources
 
-```bash
-pip install pandas pyarrow numpy
-```
+## 📖 Cách sử dụng
 
-## Sử dụng nhanh
-
-### Chuyển đổi dữ liệu sang định dạng dễ đọc
+### Basic Usage
 
 ```python
-from data_process import DataConverter
+from data_process.dataset_manager import DatasetManager
 
-# Khởi tạo converter
-converter = DataConverter(output_dir="output")
-
-# Chuyển đổi tất cả định dạng
-files = converter.convert_all_formats(
-    "data/vn-legal-doc/corpus_data.parquet",
-    text_column="text",
-    limit=100  # Chỉ lấy 100 bản ghi đầu
+# Khởi tạo với auto features
+manager = DatasetManager(
+    auto_download=True,    # Tự động download nếu thiếu
+    auto_convert=True      # Tự động convert sang format chuẩn
 )
 
-print("Các file đã tạo:", files)
+# Load dataset (sẽ auto-download nếu cần)
+dataset = manager.load_dataset('vn_legal_retrieval', 'train')
+print(f"Loaded {len(dataset)} samples")
 ```
 
-### Xử lý và làm sạch văn bản
+### Building Different Formats
 
 ```python
-from data_process import VNLegalDocProcessor
-import pandas as pd
+# 1. Query-Document pairs
+query_doc_datasets = manager.build_dataset(
+    dataset_id='vn_legal_retrieval',
+    format='query_doc',
+    max_samples=1000
+)
 
-# Khởi tạo processor
-processor = VNLegalDocProcessor()
+# 2. Triplets với negative sampling
+triple_datasets = manager.build_dataset(
+    dataset_id='vinli_triplet', 
+    format='triple',
+    negative_sampling=True,
+    negative_ratio=2.0  # 2 negatives per positive
+)
 
-# Đọc dữ liệu
-df = pd.read_parquet("data/vn-legal-doc/corpus_data.parquet")
-
-# Xử lý batch
-processed_df = processor.process_corpus_batch(df.head(10), "text")
-
-# Kết quả có thêm cột: processed_text, word_count, sentence_count
-print(processed_df.columns)
+# 3. Reranking format
+reranking_datasets = manager.build_dataset(
+    dataset_id='vn_legal_retrieval',
+    format='reranking'
+)
 ```
 
-### Phân tích dữ liệu
+### Advanced Usage
 
 ```python
-from data_process import DataAnalyzer
-import pandas as pd
+# Kiểm tra dataset info
+info = manager.get_dataset_info('vinli_triplet')
+print(f"Available: {info['available']}")
+print(f"Splits: {info.get('split_info', {}).keys()}")
 
-# Khởi tạo analyzer
-analyzer = DataAnalyzer()
+# Get statistics
+stats = manager.get_dataset_statistics('vn_legal_retrieval')
+print(f"Total rows: {stats['total_rows']}")
+print(f"Size: {stats['total_size_mb']} MB")
 
-# Đọc dữ liệu
-corpus_df = pd.read_parquet("data/vn-legal-doc/corpus_data.parquet")
-test_df = pd.read_parquet("data/vn-legal-doc/test_data.parquet")
-
-# Phân tích tổng quan
-overview = analyzer.analyze_dataset_overview(corpus_df)
-print(f"Tổng số văn bản: {overview['basic_info']['total_records']}")
-
-# Phân tích văn bản chi tiết
-text_analysis = analyzer.analyze_text_content(corpus_df, "text")
-print(f"Từ vựng độc nhất: {text_analysis['vocabulary_analysis']['unique_words']}")
-
-# So sánh datasets
-comparison = analyzer.analyze_corpus_vs_test(corpus_df, test_df)
-
-# Tạo báo cáo
-analyzer.generate_analysis_report({
-    'corpus': overview,
-    'text_analysis': text_analysis,
-    'comparison': comparison
-}, "analysis_report.txt")
+# List available datasets
+available = manager.list_available_datasets()
+print(f"Configured datasets: {available}")
 ```
 
-## Chạy demo hoàn chỉnh
+## 🔧 Configuration
+
+Dataset configurations trong `dataset_configs.json`:
+
+```json
+{
+  "datasets": {
+    "vn_legal_retrieval": {
+      "name": "Vietnamese Legal Document Retrieval Data",
+      "description": "Vietnamese legal document retrieval dataset for question-answering",
+      "hub_id": "YuITC/Vietnamese-Legal-Doc-Retrieval-Data",
+      "splits": {
+        "train": "train_data.parquet",
+        "test": "test_data.parquet"
+      },
+      "local_path": "data/vn_legal_retrieval",
+      "file_format": "parquet",
+      "use_case": "legal_qa",
+      "language": "vi"
+    }
+  },
+  "download_settings": {
+    "cache_dir": "data/.cache",
+    "require_auth": true,
+    "parallel_downloads": 4,
+    "verify_checksums": true
+  }
+}
+```
+
+## 🏗️ Dataset Formats
+
+### Query-Document Pairs
+```python
+{
+    'query': 'Câu hỏi về luật...',
+    'document': 'Nội dung tài liệu pháp lý...',
+    'label': 1  # Relevance score
+}
+```
+
+### Triplets
+```python
+{
+    'query': 'Câu hỏi về luật...',
+    'positive': 'Tài liệu liên quan...',
+    'negative': 'Tài liệu không liên quan...'
+}
+```
+
+### Reranking
+```python
+{
+    'query': 'Câu hỏi về luật...',
+    'document': 'Tài liệu để rank...',
+    'score': 0.85  # Relevance score
+}
+```
+
+## 🎯 Use Cases
+
+### 1. Training Retrieval Models
+```python
+# Lấy query-doc pairs cho training
+datasets = manager.build_dataset('vn_legal_retrieval', format='query_doc')
+train_data = datasets['train']
+
+# Sử dụng với PyTorch DataLoader
+from torch.utils.data import DataLoader
+loader = DataLoader(train_data, batch_size=32)
+```
+
+### 2. Training với Triplet Loss
+```python
+# Lấy triplets cho contrastive learning
+triplets = manager.build_dataset('vinli_triplet', format='triple')
+train_triplets = triplets['train']
+
+# Có sẵn query, positive, negative
+for batch in train_triplets:
+    query = batch['query']
+    positive = batch['positive'] 
+    negative = batch['negative']
+    # Train model với triplet loss
+```
+
+### 3. Evaluation với Reranking
+```python
+# Lấy data với scores để evaluate
+rerank_data = manager.build_dataset('vn_legal_retrieval', format='reranking')
+test_data = rerank_data['test']
+
+# Evaluate ranking performance
+for item in test_data:
+    predicted_score = model.predict(item['query'], item['document'])
+    true_score = item['score']
+    # Compute ranking metrics
+```
+
+## 🔄 Auto-Download Flow
+
+1. **Check Local**: Kiểm tra dataset có sẵn local không
+2. **Download**: Nếu không có và `auto_download=True`, download từ HF
+3. **Convert**: Nếu có raw data và `auto_convert=True`, convert sang format chuẩn
+4. **Load**: Load dataset đã convert
+
+## 🌟 Environment Setup
 
 ```bash
-cd data_process
-python example_usage.py
+# Set HF token (optional, for private datasets)
+export HF_TOKEN="your_huggingface_token"
+
+# Or create .env file
+echo "HF_TOKEN=your_huggingface_token" > .env
 ```
 
-Script này sẽ:
-1. ✅ Chuyển đổi dữ liệu sang JSON, CSV, TXT
-2. ✅ Làm sạch và chuẩn hóa văn bản
-3. ✅ Phân tích thống kê chi tiết
-4. ✅ Trích xuất thành phần pháp lý
-5. ✅ Tạo báo cáo tổng hợp
+## 📝 Examples
 
-## Cấu trúc thư mục sau khi chạy
+Xem file `examples/example_dataset_manager.py` để demo đầy đủ các tính năng:
 
-```
-processed_data/
-├── corpus_data.json           # Dữ liệu corpus dạng JSON
-├── corpus_data.csv            # Dữ liệu corpus dạng CSV  
-├── corpus_data_text.txt       # Văn bản thuần với metadata
-├── corpus_data_summary.txt    # Tóm tắt thống kê corpus
-├── test_data.json            # Dữ liệu test dạng JSON
-├── test_data.csv             # Dữ liệu test dạng CSV
-├── test_data_text.txt        # Văn bản test thuần
-├── test_data_summary.txt     # Tóm tắt thống kê test
-└── comprehensive_analysis_report.txt  # Báo cáo phân tích đầy đủ
+```bash
+python examples/example_dataset_manager.py
 ```
 
-## Tính năng nâng cao
-
-### Trích xuất thành phần pháp lý
+## 🚀 Quick Start
 
 ```python
-processor = VNLegalDocProcessor()
+# All-in-one example
+from data_process.dataset_manager import DatasetManager
 
-# Xử lý một văn bản với trích xuất thành phần
-result = processor.process_document(text, extract_elements=True)
+manager = DatasetManager(auto_download=True, auto_convert=True)
 
-# Kết quả chứa:
-# - cleaned_text: văn bản đã làm sạch
-# - normalized_text: văn bản đã chuẩn hóa  
-# - sentences: danh sách câu
-# - legal_elements: các thành phần pháp lý (Điều, Chương, Mục...)
-# - statistics: thống kê từ, câu, ký tự
+# Build training data
+train_data = manager.build_dataset(
+    'vn_legal_retrieval', 
+    format='query_doc',
+    splits=['train']
+)['train']
+
+# Ready to use!
+print(f"Training data: {len(train_data)} samples")
+print(f"Sample: {train_data[0]}")
 ```
 
-### Tùy chỉnh patterns pháp lý
-
-```python
-processor = VNLegalDocProcessor()
-
-# Thêm pattern tùy chỉnh
-processor.legal_patterns['custom_pattern'] = r'Nghị định\\s+\\d+/\\d+/.*'
-
-# Sử dụng để trích xuất
-elements = processor.extract_legal_elements(text)
-```
-
-## Lưu ý
-
-- Tất cả các file output sử dụng encoding UTF-8 để đảm bảo hiển thị đúng tiếng Việt
-- Dữ liệu được làm sạch và chuẩn hóa theo tiêu chuẩn Unicode NFC  
-- Hỗ trợ xử lý batch cho hiệu suất cao với dữ liệu lớn
-- Các báo cáo phân tích được xuất ra định dạng text dễ đọc
-
-## Hỗ trợ
-
-Thư viện được thiết kế đặc biệt cho văn bản pháp luật Việt Nam với:
-- Nhận diện cấu trúc pháp lý (Điều, Chương, Mục...)
-- Từ điển thuật ngữ pháp lý Việt Nam
-- Xử lý Unicode tiếng Việt chính xác
-- Phân tích thống kê phù hợp với văn bản pháp lý
-
-
+Với Dataset Manager nâng cấp, việc quản lý và sử dụng datasets trở nên đơn giản và linh hoạt hơn rất nhiều! 🎉

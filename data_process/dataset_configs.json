@@ -1,0 +1,70 @@
+{
+  "datasets": {
+    "vinli_triplet": {
+      "name": "ViNLI Triplet Dataset",
+      "description": "Vietnamese Natural Language Inference dataset in triplet format for training",
+      "hub_id": "ContextSearchLM/ViNLI_triplet",
+      "splits": {
+        "train": "data/train-00000-of-00001.parquet",
+        "test": "data/test-00000-of-00001.parquet", 
+        "dev": "data/dev-00000-of-00001.parquet"
+      },
+      "local_path": "data/vinli_triplet",
+      "file_format": "parquet",
+      "use_case": "training_triplets",
+      "language": "vi"
+    },
+    "vn_legal_retrieval": {
+      "name": "Vietnamese Legal Document Retrieval Data",
+      "description": "Vietnamese legal document retrieval dataset for question-answering",
+      "hub_id": "YuITC/Vietnamese-Legal-Doc-Retrieval-Data",
+      "splits": {
+        "train": "train_data.parquet",
+        "test": "test_data.parquet"
+      },
+      "local_path": "data/vn_legal_retrieval",
+      "file_format": "parquet",
+      "use_case": "legal_qa",
+      "language": "vi"
+    },
+    "viglue_r": {
+      "name": "ViGLUE-R (Vietnamese GLUE Retrieval)",
+      "description": "Vietnamese GLUE retrieval benchmark with MNLI and QNLI tasks",
+      "hub_id": "ContextSearchLM/ViGLUE-R",
+      "splits": {
+        "mnli_r": "data/mnli_r-00000-of-00001.parquet",
+        "qnli_r": "data/qnli_r-00000-of-00001.parquet"
+      },
+      "local_path": "data/viglue_r",
+      "file_format": "parquet",
+      "use_case": "benchmark_retrieval",
+      "language": "vi"
+    },
+    "vinli_reranking": {
+      "name": "ViNLI Reranking Dataset",
+      "description": "Vietnamese Natural Language Inference dataset for reranking tasks",
+      "hub_id": "ContextSearchLM/ViNLI_reranking",
+      "splits": {
+        "train": "data/train-00000-of-00001.parquet",
+        "test": "data/test-00000-of-00001.parquet",
+        "dev": "data/dev-00000-of-00001.parquet"
+      },
+      "local_path": "data/vinli_reranking",
+      "file_format": "parquet",
+      "use_case": "reranking",
+      "language": "vi"
+    }
+  },
+  "download_settings": {
+    "cache_dir": "data/.cache",
+    "require_auth": true,
+    "parallel_downloads": 4,
+    "verify_checksums": true
+  },
+  "preprocessing": {
+    "text_columns": ["query", "document", "text", "sentence1", "sentence2"],
+    "label_columns": ["label", "score", "relevance"],
+    "max_text_length": 512,
+    "encoding": "utf-8"
+  }
+}

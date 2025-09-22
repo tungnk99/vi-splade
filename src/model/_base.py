@@ -9,7 +9,7 @@ class BaseSparseModel:
 
     def __init__(
             self,
-            model_name_or_path: str = NameError,
+            model_name_or_path: str,
             device: Optional[Union[str, torch.device]] = None,
             eval: bool = True,
             **kwargs
@@ -24,13 +24,16 @@ class BaseSparseModel:
 
         self.model_name_or_path = model_name_or_path
 
+        self.model: SparseEncoder = None
         if self.eval_mode:
             self.model = SparseEncoder.from_pretrained(self.model_name_or_path)
         else:
-            built_model = self.build_model()
-            if built_model is None:
-                raise ValueError(f"build_model() returned None. Check your model implementation.")
-            self.model = built_model
+            # Try to load pre-trained SPLADE model first, fallback to building custom model
+            try:
+                self.model = SparseEncoder.from_pretrained(self.model_name_or_path)
+            except Exception:
+                # If loading fails, build custom model
+                self.model = self.build_model()
         
         # Initialize tokenizer from the model
         self.tokenizer = None
